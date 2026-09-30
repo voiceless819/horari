@@ -1,0 +1,3 @@
+Guarda aquí tu horario de trabajo con este nombre exacto:
+  trabajo.pdf   (o trabajo.png / trabajo.jpg)
+sync.py lo subirá solo a GitHub.

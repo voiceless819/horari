@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light">
+    <title>Horario Tatari</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PDF.js para renderizar PDFs a Canvas directamente en el cliente -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+    <style>
+        :root { color-scheme: light; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background-color: #fff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        th, td {
+            border: 1px solid #e0e0e0;
+            padding: 10px 12px;
+            text-align: center;
+            font-size: 14px;
+            position: relative;
+        }
+        th {
+            background-color: #343a40;
+            color: #ffffff;
+            text-transform: uppercase;
+            font-size: 13px;
+            letter-spacing: 0.5px;
+        }
+        tr:nth-child(even) {
+            background-color: #fdfdfd;
+        }
+        td.clickable {
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        td.clickable:hover {
+            filter: brightness(0.95);
+            transform: scale(1.002);
+            box-shadow: inset 0 0 0 2px rgba(0,0,0,0.1);
+        }
+        /* Colores de asignaturas */
+        .programacio { background-color: #d1e7dd; color: #0f5132; font-weight: 600; }
+        .web { background-color: #ffe6d5; color: #843b00; font-weight: 600; }
+        .monolloc { background-color: #f8d7da; color: #842029; font-weight: 600; }
+        .serveis { background-color: #e6cce6; color: #4a154b; font-weight: 600; }
+        .seguretat { background-color: #cfe2ff; color: #084298; font-weight: 600; }
+        .ipo { background-color: #d0c8ec; color: #2c1a4d; font-weight: 600; }
+        .sox { background-color: #d8d0e6; color: #382456; font-weight: 600; }
+        .tutoria { background-color: #ffdae0; color: #842029; font-weight: 600; }
+        .empty { color: #b0b0b0; }
+        .subtext {
+            display: block;
+            font-weight: normal;
+            font-size: 12px;
+            margin-top: 4px;
+            opacity: 0.85;
+        }
+
+        /* --- Notas locales --- */
+        .note-btn { position: absolute; top: 2px; right: 2px; font-size: 11px; line-height: 1; background: transparent; border: 0; cursor: pointer; padding: 2px; opacity: 0; transition: opacity .15s; }
+        td:hover .note-btn, .note-btn.has-note { opacity: .8; }
+        .note-text { display: block; font-size: 11px; color: #4338ca; font-style: italic; margin-top: 4px; }
+        .custom-cell { background-color: #fef9c3; color: #713f12; font-weight: 600; border: 2px dashed #ca8a04; white-space: pre-wrap; word-break: break-word; }
+        td.note-empty { cursor: pointer; }
+        td.note-empty:hover { background-color: #eef2ff; }
+
+        /* --- Móvil: vista por días --- */
+        .tbl-wrap { overflow-x: auto; }
+        #dayview { display: none; }
+        #chips { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+        #chips button { flex: 1; min-width: 44px; min-height: 44px; border: 1px solid #e5e7eb; background: #f3f4f6; color: #6b7280; border-radius: 12px; font-weight: 600; font-size: 13px; cursor: pointer; }
+        #chips button[aria-selected="true"] { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+        .item { display: flex; gap: 12px; width: 100%; text-align: left; border: 0; border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; min-height: 56px; align-items: center; font-size: 14px; cursor: pointer; font-family: inherit; }
+        .item .t { flex: none; width: 48px; font-size: 13px; line-height: 1.3; }
+        .brkrow { color: #b0b0b0; font-style: italic; font-size: 13px; padding: 0 14px 10px; }
+        @media (max-width: 720px) {
+            body { padding: 10px; }
+            .tbl-wrap { display: none; }
+            #dayview { display: block; margin-top: 16px; }
+            h2.text-3xl { font-size: 1.5rem; }
+            #floating-pip-widget { max-width: calc(100vw - 24px); right: 12px; bottom: 12px; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+<div class="max-w-7xl mx-auto">
+    <!-- Navegación por pestañas -->
+    <div class="flex space-x-2 mb-6 border-b border-gray-200">
+        <button id="tab-btn-academic" onclick="switchTab('academic')" class="py-3 px-6 font-semibold text-sm rounded-t-xl bg-white border border-b-0 border-gray-200 text-indigo-600 shadow-sm">
+            Horario Académico SMX
+        </button>
+        <button id="tab-btn-work" onclick="switchTab('work')" class="py-3 px-6 font-semibold text-sm rounded-t-xl bg-gray-100 text-gray-500 hover:text-gray-700">
+            Horario Trabajo Rotativo
+        </button>
+    </div>
+
+    <!-- SECCIÓN 1: HORARIO ACADÉMICO -->
+    <div id="section-academic">
+        <div class="flex flex-col md:flex-row justify-between items-center mb-6 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+            <div>
+                <h2 class="text-3xl font-bold text-gray-800 mb-1">Horario Académico SMX</h2>
+                <p class="text-sm text-gray-500">Haz clic en una clase para el temporizador PiP, o en una casilla vacía para añadir una nota.</p>
+            </div>
+            <div class="mt-4 md:mt-0 flex items-center space-x-3">
+                <button id="btn-global-pip" class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-4 py-2.5 rounded-xl shadow transition flex items-center space-x-2 text-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+                    <span>Sacar Temporizador PiP</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Desplegables: no se muestran hasta que se pulsan -->
+        <div class="flex flex-wrap gap-2">
+            <button id="toggle-before" onclick="toggleSection('before')" aria-expanded="false" class="text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg border border-indigo-100 transition">▾ Horas anteriores</button>
+            <button id="toggle-after" onclick="toggleSection('after')" aria-expanded="false" class="text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg border border-indigo-100 transition">▾ Horas posteriores</button>
+            <button id="toggle-weekend" onclick="toggleSection('weekend')" aria-expanded="false" class="text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg border border-indigo-100 transition">▾ Fines de semana</button>
+        </div>
+
+        <div class="tbl-wrap"><table id="tbl"></table></div>
+
+        <!-- Vista móvil -->
+        <div id="dayview" class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+            <div id="chips" role="tablist" aria-label="Día"></div>
+            <div id="dlist"></div>
+        </div>
+    </div>
+
+    <!-- SECCIÓN 2: VISOR DE TRABAJO ROTATIVO -->
+    <div id="section-work" class="hidden">
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col min-h-[600px]">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-800">Horario de Trabajo Rotativo</h2>
+                    <p class="text-sm text-gray-500">Consulta aquí el horario actualizado. Haz clic sobre la imagen para ampliarla.</p>
+                </div>
+            </div>
+
+            <!-- Visor del documento -->
+            <div id="pdf-viewer-container" class="flex-1 bg-gray-50 border border-dashed border-gray-300 rounded-xl flex items-start justify-center min-h-[500px] overflow-y-auto p-2">
+                <p class="text-sm text-gray-400 text-center px-4">Cargando horario...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para Vista Ampliada (Lightbox Zoom) -->
+<div id="image-modal" class="fixed inset-0 z-[100] hidden bg-black/90 backdrop-blur-md flex flex-col justify-between p-4 transition-opacity duration-300">
+    <!-- Barra superior de controles -->
+    <div class="flex justify-between items-center text-white z-10 bg-gray-900/60 p-3 rounded-2xl backdrop-blur-sm border border-gray-700/50">
+        <span class="text-sm font-medium pl-2">Vista previa ampliada</span>
+        <div class="flex items-center gap-2">
+            <button onclick="zoomModal(-0.2)" class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-lg font-bold border border-gray-600 transition" title="Alejar">-</button>
+            <button onclick="zoomModal(0.2)" class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-lg font-bold border border-gray-600 transition" title="Acercar">+</button>
+            <button onclick="resetZoomModal()" class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs font-medium border border-gray-600 transition">Reset</button>
+            <button onclick="closeModal()" class="ml-2 px-4 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-bold transition">Cerrar ✕</button>
+        </div>
+    </div>
+
+    <!-- Contenedor con Scroll para la Imagen -->
+    <div id="modal-content-container" class="flex-1 overflow-auto flex items-center justify-center p-2 my-2 cursor-grab active:cursor-grabbing">
+        <div id="modal-zoom-wrapper" class="transition-transform duration-150 ease-out origin-center">
+            <!-- Aquí se inserta el elemento real (canvas/imagen), nunca una copia -->
+        </div>
+    </div>
+</div>
+
+<!-- Ventana Flotante Local -->
+<div id="floating-pip-widget" class="hidden fixed bottom-6 right-6 z-50 w-80 bg-gray-900/95 backdrop-blur-md text-white rounded-2xl shadow-2xl border border-gray-700 overflow-hidden transition-all duration-300 transform scale-95 opacity-0">
+    <div class="bg-gray-800/80 px-4 py-2.5 flex justify-between items-center border-b border-gray-700/60">
+        <div class="flex items-center space-x-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span class="font-bold text-xs uppercase tracking-wider text-gray-200">Temporizador Minimalista</span>
+        </div>
+        <div class="flex items-center space-x-1.5">
+            <button id="pip-close" class="text-gray-400 hover:text-red-400 font-bold px-2 py-0.5 rounded bg-gray-700/50 hover:bg-gray-700 text-xs transition">✕</button>
+        </div>
+    </div>
+    <div class="p-4 text-center">
+        <div class="bg-gray-800/90 rounded-xl p-3 border border-gray-700/80 mb-3 shadow-inner">
+            <div id="pip-countdown" class="text-4xl font-black text-cyan-400 font-mono tracking-tight drop-shadow-md">00:00:00</div>
+        </div>
+        <div class="flex justify-between items-center text-xs text-gray-400 px-1">
+            <span id="pip-timerange">00:00 - 00:00</span>
+            <button id="btn-popout-pip" class="text-indigo-400 hover:text-indigo-300 underline font-medium">Sacar PiP Flotante</button>
+        </div>
+    </div>
+</div>
+
+<!-- Canvas oculto para el Picture-in-Picture real del sistema -->
+<canvas id="pip-canvas" width="680" height="280" class="hidden"></canvas>
+<video id="pip-video" autoplay muted playsinline class="hidden"></video>
+
+<script>
+/* ================= DATOS ================= */
+const SUBJECTS = {
+  prog:  {cls:"programacio", label:"Optativa SMX – Programació", teacher:"Xavier Baubés"},
+  web:   {cls:"web",         label:"M0228 Aplicacions Web", teacher:"Josep Anton Perez"},
+  mono:  {cls:"monolloc",    label:"M0222 Sistemes Operatius Monolloc", teacher:"Angel Bosch"},
+  xarxa: {cls:"serveis",     label:"M0227 Serveis de Xarxa", teacher:"Glòria Giró"},
+  seg:   {cls:"seguretat",   label:"M0226 Seguretat Informàtica", teacher:"Ricard Galvany"},
+  ipo:   {cls:"ipo",         label:"M1710 Itinerari Personal para l'Ocupabilitat II (SMX)", teacher:"Jacob Palonés"},
+  sox:   {cls:"sox",         label:"M0224 Sistemes Operatius en Xarxa", teacher:"Angel Bosch"},
+  tut:   {cls:"tutoria",     label:"Tutoria Informàtica", teacher:"Ricard Galvany"}
+};
+const CORE_DAYS = ["Lunes","Martes","Miércoles","Jueves","Viernes"];
+const WEEKEND_DAYS = ["Sábado","Domingo"];
+
+const CORE_SLOTS = [
+  ["08:15","09:15"],["09:15","10:15"],["10:15","11:15"],["11:15","11:45",true],
+  ["11:45","12:45"],["12:45","13:45"],["13:45","14:45"],
+  ["14:50","15:50"],["15:50","16:50"],["16:50","17:20",true],
+  ["17:20","18:20"],["18:20","19:20"]
+];
+// Franjas extra, ocultas hasta que se despliegan. No hay clases programadas
+// en ellas, son solo para poder dejar alguna nota si hace falta.
+const EXTRA_BEFORE = [["06:00","07:00"],["07:00","08:15"]];
+const EXTRA_AFTER  = [["19:20","20:20"],["20:20","21:20"],["21:20","22:20"]];
+
+const CLASSES = [
+  [0,3,"prog","AP7"],
+  [1,1,"web","AP6"],[1,2,"prog","AP7"],[1,3,"prog","AP7"],
+  [2,0,"mono","AP8"],
+  [4,0,"mono","AP8"],[4,1,"web","AP6"],
+  [5,4,"mono","AP7"],
+  [7,0,"xarxa","AP8"],[7,1,"xarxa","AP8"],[7,2,"ipo","AP7"],[7,3,"sox","AP8"],[7,4,"xarxa","AP8"],
+  [8,0,"seg","AP8"],[8,1,"xarxa","AP8"],[8,2,"ipo","AP7"],[8,3,"sox","AP8"],[8,4,"sox","AP8"],
+  [10,0,"seg","AP8"],[10,1,"sox","AP8"],[10,2,"tut","AP8"],[10,3,"sox","AP8"],[10,4,"seg","AP8"],
+  [11,0,"seg","AP8"],[11,1,"sox","AP8"],[11,2,"xarxa","AP8"],[11,3,"xarxa","AP8"],[11,4,"seg","AP8"]
+].map(([slot,day,k,room])=>({day,start:CORE_SLOTS[slot][0],end:CORE_SLOTS[slot][1],room,...SUBJECTS[k]}));
+
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2,'0');
+const hms = ms => { const s=Math.max(0,Math.floor(ms/1000)); return pad(Math.floor(s/3600))+":"+pad(Math.floor(s%3600/60))+":"+pad(s%60); };
+const dayIdx = d => (d.getDay()+6)%7;
+const at = (base,t) => { const [h,m]=t.split(':').map(Number); const d=new Date(base); d.setHours(h,m,0,0); return d; };
+function escapeHtml(str){
+    return str.replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+
+function occurrence(c, now=new Date()){
+    for(let i=0;i<8;i++){
+        const base=new Date(now); base.setDate(now.getDate()+i);
+        if(dayIdx(base)!==c.day) continue;
+        const s=at(base,c.start), e=at(base,c.end);
+        if(e>now) return {s,e,live:now>=s};
+    }
+}
+function remaining(c){ const o=occurrence(c); return (o.live?o.e:o.s)-new Date(); }
+function nextClass(){
+    let best=null;
+    for(const c of CLASSES){ const o=occurrence(c); if(!o) continue; const key=o.live?-1:o.s.getTime(); if(!best||key<best.key) best={c,key}; }
+    return best&&best.c;
+}
+
+// --- NOTAS LOCALES (se guardan solo en este navegador, no se comparten) ---
+function loadNotes(){
+    try { return JSON.parse(localStorage.getItem('smx_notes') || '{}'); } catch(e){ return {}; }
+}
+function saveNotes(){
+    try { localStorage.setItem('smx_notes', JSON.stringify(notes)); } catch(e){}
+}
+const notes = loadNotes();
+function editNote(key){
+    const current = notes[key] || '';
+    const val = prompt('Nota para esta casilla (déjala vacía para borrarla):', current);
+    if (val === null) return; // canceló
+    if (val.trim() === '') delete notes[key]; else notes[key] = val.trim();
+    saveNotes();
+    buildTable();
+    buildDay();
+}
+
+// --- DESPLEGABLES: horas anteriores/posteriores y fines de semana ---
+let showBefore = false, showAfter = false, showWeekend = false;
+function getActiveSlots(){ return [...(showBefore?EXTRA_BEFORE:[]), ...CORE_SLOTS, ...(showAfter?EXTRA_AFTER:[])]; }
+function getActiveDays(){ return [...CORE_DAYS, ...(showWeekend?WEEKEND_DAYS:[])]; }
+function toggleSection(name){
+    if (name === 'before') showBefore = !showBefore;
+    if (name === 'after')  showAfter  = !showAfter;
+    if (name === 'weekend') showWeekend = !showWeekend;
+    updateToggleLabels();
+    buildTable();
+    buildDay();
+}
+function updateToggleLabels(){
+    const set = (id, on, label) => { const b=$(id); b.textContent = (on?'▴ ':'▾ ')+label; b.setAttribute('aria-expanded', on); };
+    set('toggle-before', showBefore, 'Horas anteriores');
+    set('toggle-after', showAfter, 'Horas posteriores');
+    set('toggle-weekend', showWeekend, 'Fines de semana');
+}
+
+// --- TABLA ---
+function selectClassByKey(k){ selectClass(findByKey(k)); }
+const findByKey = k => { const [d,s]=k.split('|'); return CLASSES.find(x=>x.day==d&&x.start===s); };
+
+function buildTable(){
+    const slots = getActiveSlots();
+    const days = getActiveDays();
+    let h = '<thead><tr><th>Hora</th>' + days.map(d=>`<th>${d}</th>`).join('') + '</tr></thead><tbody>';
+    slots.forEach(([s,e,brk]) => {
+        h += `<tr><td><strong>${s} - ${e}</strong></td>`;
+        if (brk) { h += `<td colspan="${days.length}" class="empty"><em>Pati / Descanso</em></td></tr>`; return; }
+        days.forEach((dayName, d) => {
+            const key = `${d}|${s}`;
+            const c = (d < 5) ? CLASSES.find(x=>x.day===d && x.start===s) : null;
+            const note = notes[key];
+            if (c) {
+                h += `<td class="${c.cls} clickable" tabindex="0" data-k="${key}" onclick="selectClassByKey('${key}')">
+                        <button class="note-btn ${note?'has-note':''}" title="${note?'Editar nota':'Añadir nota'}" onclick="event.stopPropagation();editNote('${key}')">📝</button>
+                        ${c.label}<span class="subtext">${c.teacher} (${c.room})</span>
+                        ${note?`<span class="note-text">📝 ${escapeHtml(note)}</span>`:''}
+                      </td>`;
+            } else {
+                h += `<td class="${note?'custom-cell':'empty'} note-empty" tabindex="0" data-k="${key}" title="${note?'Clic para editar la nota':'Clic para añadir una nota'}" onclick="editNote('${key}')">
+                        ${note?escapeHtml(note):'—'}
+                      </td>`;
+            }
+        });
+        h += '</tr>';
+    });
+    $('tbl').innerHTML = h + '</tbody>';
+}
+$('tbl').addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const td = e.target.closest('td[data-k]');
+    if (td) { e.preventDefault(); td.click(); }
+});
+
+// --- VISTA MÓVIL ---
+let mday = Math.min(dayIdx(new Date()),4);
+function buildDay(){
+    const days = getActiveDays();
+    const slots = getActiveSlots();
+    if (mday > days.length - 1) mday = days.length - 1;
+    $('chips').innerHTML = days.map((d,i)=>`<button role="tab" data-i="${i}" aria-selected="${i===mday}" onclick="mday=${i};buildDay();">${d.slice(0,3)}</button>`).join('');
+    let h='', any=false;
+    slots.forEach(([s,e,brk])=>{
+        if (brk) { if (any) h += `<div class="brkrow">${s} - ${e} Pati / Descanso</div>`; return; }
+        const key = `${mday}|${s}`;
+        const c = (mday < 5) ? CLASSES.find(x=>x.day===mday && x.start===s) : null;
+        const note = notes[key];
+        if (c) {
+            any = true;
+            h += `<button class="item ${c.cls}" onclick="selectClassByKey('${key}')"><span class="t">${c.start}<br>${c.end}</span><span>${c.label}<span class="subtext">${c.teacher} (${c.room})</span>${note?`<span class="note-text">📝 ${escapeHtml(note)}</span>`:''}</span></button>`;
+        } else if (note) {
+            any = true;
+            h += `<div class="item custom-cell" onclick="editNote('${key}')"><span class="t">${s}<br>${e}</span><span>${escapeHtml(note)}</span></div>`;
+        } else if (showBefore || showAfter || mday >= 5) {
+            any = true;
+            h += `<button class="item" style="background:#f9fafb;border:1px dashed #d1d5db;" onclick="editNote('${key}')"><span class="t">${s}<br>${e}</span><span class="subtext" style="margin-top:0">Clic para añadir una nota</span></button>`;
+        }
+    });
+    $('dlist').innerHTML = any ? h : '<p class="empty" style="text-align:center;padding:20px 0">Sin clases este día.</p>';
+}
+
+// --- NAVEGACIÓN ---
+function switchTab(tab) {
+    const academicSec = $('section-academic');
+    const workSec = $('section-work');
+    const academicBtn = $('tab-btn-academic');
+    const workBtn = $('tab-btn-work');
+
+    if (tab === 'academic') {
+        academicSec.classList.remove('hidden');
+        workSec.classList.add('hidden');
+        academicBtn.className = "py-3 px-6 font-semibold text-sm rounded-t-xl bg-white border border-b-0 border-gray-200 text-indigo-600 shadow-sm";
+        workBtn.className = "py-3 px-6 font-semibold text-sm rounded-t-xl bg-gray-100 text-gray-500 hover:text-gray-700";
+    } else {
+        academicSec.classList.add('hidden');
+        workSec.classList.remove('hidden');
+        workBtn.className = "py-3 px-6 font-semibold text-sm rounded-t-xl bg-white border border-b-0 border-gray-200 text-indigo-600 shadow-sm";
+        academicBtn.className = "py-3 px-6 font-semibold text-sm rounded-t-xl bg-gray-100 text-gray-500 hover:text-gray-700";
+        loadWork();
+    }
+}
+
+// --- RENDERIZADO DE PDF EN CANVAS ---
+async function renderPdfToCanvas(pdfUrl, container) {
+    const loadingTask = pdfjsLib.getDocument(pdfUrl);
+    const pdf = await loadingTask.promise;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const targetWidth = (container.clientWidth || window.innerWidth - 40) * dpr;
+    const MAX_PIXELS = 4000 * 4000;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'w-full flex flex-col items-center gap-4 cursor-pointer';
+    wrapper.title = 'Haz clic para ampliar';
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const base = page.getViewport({ scale: 1 });
+        let scale = targetWidth / base.width;
+        if (base.width * base.height * scale * scale > MAX_PIXELS) {
+            scale = Math.sqrt(MAX_PIXELS / (base.width * base.height));
+        }
+        const viewport = page.getViewport({ scale });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+        canvas.className = 'max-w-full rounded-xl shadow-sm hover:opacity-95 transition';
+        canvas.style.width = '100%';
+        canvas.style.height = 'auto';
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+        wrapper.appendChild(canvas);
+    }
+
+    // Al hacer clic se AMPLÍA el mismo elemento (no una copia): un <canvas>
+    // clonado con cloneNode() pierde el dibujo, así que reutilizamos el
+    // nodo real y lo devolvemos a su sitio al cerrar el modal.
+    wrapper.onclick = () => openModal(wrapper, true);
+
+    return wrapper;
+}
+
+// --- HORARIO DE TRABAJO ---
+async function loadWork(){
+    const cacheKey = 'cached_work_schedule';
+    const cacheTypeKey = 'cached_work_type';
+
+    const savedData = localStorage.getItem(cacheKey);
+    const savedType = localStorage.getItem(cacheTypeKey);
+
+    if (savedData) {
+        renderWorkFile(savedData, savedType);
+    }
+
+    for (const ext of ['png','jpg','jpeg','webp','pdf']) {
+        const url = `horarios/trabajo.${ext}?v=${Date.now()}`;
+        try {
+            const res = await fetch(url, { cache: 'no-store' });
+            if (!res.ok) continue;
+
+            if (ext === 'pdf') {
+                localStorage.setItem(cacheKey, url);
+                localStorage.setItem(cacheTypeKey, 'pdf');
+                renderWorkFile(url, 'pdf');
+            } else {
+                const blob = await res.blob();
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const base64data = reader.result;
+                    try {
+                        localStorage.setItem(cacheKey, base64data);
+                        localStorage.setItem(cacheTypeKey, 'img');
+                    } catch (e) {
+                        console.warn('No se pudo cachear la imagen (demasiado grande para localStorage).');
+                    }
+                    renderWorkFile(base64data, 'img');
+                };
+                reader.readAsDataURL(blob);
+            }
+            return;
+        } catch (e) {
+            console.log('Fallo de red o modo offline:', e);
+        }
+    }
+
+    if (!savedData) {
+        $('pdf-viewer-container').innerHTML = '<p class="text-sm text-gray-400 text-center px-4">No hay ningún horario subido actualmente.</p>';
+    }
+}
+
+async function renderWorkFile(src, type) {
+    const box = $('pdf-viewer-container');
+
+    if (type === 'pdf') {
+        box.innerHTML = '<p class="text-sm text-gray-400 animate-pulse text-center p-4">Generando vista previa del horario...</p>';
+        try {
+            const canvasWrapper = await renderPdfToCanvas(src, box);
+            box.innerHTML = '';
+            box.appendChild(canvasWrapper);
+        } catch (err) {
+            console.error("Error renderizando PDF con PDF.js:", err);
+            box.innerHTML = `
+                <div class="flex flex-col items-center justify-center p-6 text-center w-full">
+                    <div class="w-16 h-16 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center font-bold text-lg mb-3 shadow-inner border border-red-100">PDF</div>
+                    <p class="font-bold text-gray-800 mb-1">No se ha podido mostrar el horario</p>
+                    <button onclick="loadWork()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-6 py-3 rounded-xl shadow-md transition text-sm mt-2">Reintentar</button>
+                </div>
+            `;
+        }
+    } else {
+        const img = document.createElement('img');
+        img.src = src;
+        img.alt = "Horario de trabajo";
+        img.className = "max-w-full max-h-[600px] object-contain rounded-xl shadow-sm cursor-pointer hover:opacity-95 transition";
+        img.title = 'Haz clic para ampliar';
+        img.onclick = () => {
+            const fullImg = document.createElement('img');
+            fullImg.src = src;
+            fullImg.className = "max-w-full h-auto rounded-lg shadow-2xl";
+            openModal(fullImg, false);
+        };
+        box.innerHTML = '';
+        box.appendChild(img);
+    }
+}
+
+// --- MODAL DE ZOOM (LIGHTBOX) ---
+let currentZoom = 1;
+let modalReturnToBox = false;
+
+function openModal(element, returnToBox) {
+    const modal = $('image-modal');
+    const wrapper = $('modal-zoom-wrapper');
+    modalReturnToBox = !!returnToBox;
+    wrapper.innerHTML = '';
+    wrapper.appendChild(element); // reparenta el nodo real: el canvas conserva su dibujo
+
+    const canvasList = wrapper.querySelectorAll('canvas');
+    canvasList.forEach(c => {
+        c.style.width = '100%';
+        c.style.maxWidth = '1000px';
+    });
+
+    currentZoom = 1;
+    wrapper.style.transform = `scale(${currentZoom})`;
+    modal.classList.remove('hidden');
+
+    // Empieza siempre arriba del todo, no donde se quedó la última vez.
+    const scrollBox = $('modal-content-container');
+    scrollBox.scrollTop = 0;
+    scrollBox.scrollLeft = 0;
+}
+
+function closeModal() {
+    const modal = $('image-modal');
+    const wrapper = $('modal-zoom-wrapper');
+    if (modalReturnToBox) {
+        const el = wrapper.firstElementChild;
+        const box = $('pdf-viewer-container');
+        if (el && box) box.appendChild(el); // devuelve el canvas a su sitio con su dibujo intacto
+    }
+    modal.classList.add('hidden');
+}
+
+function zoomModal(step) {
+    currentZoom = Math.max(0.5, Math.min(3, currentZoom + step));
+    $('modal-zoom-wrapper').style.transform = `scale(${currentZoom})`;
+}
+
+function resetZoomModal() {
+    currentZoom = 1;
+    $('modal-zoom-wrapper').style.transform = `scale(${currentZoom})`;
+}
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('image-modal').classList.contains('hidden')) closeModal();
+});
+
+// Redimensionar responsivo
+let resizeTimer;
+window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+        if (!$('section-work').classList.contains('hidden')) loadWork();
+    }, 400);
+});
+
+// --- TEMPORIZADOR Y WIDGET FLOTANTE ---
+let currentTimerInterval = null;
+let pipCanvasInterval = null;
+let activeClass = null;
+
+const widget = $('floating-pip-widget');
+$('pip-close').addEventListener('click', closeWidget);
+
+function closeWidget() {
+    widget.classList.add('scale-95', 'opacity-0');
+    setTimeout(() => widget.classList.add('hidden'), 300);
+    clearInterval(currentTimerInterval);
+}
+
+function selectClass(c) {
+    if(!c) return;
+    activeClass = c;
+    widget.classList.remove('hidden');
+    setTimeout(() => widget.classList.remove('scale-95', 'opacity-0'), 10);
+
+    $('pip-timerange').innerText = `${c.start} - ${c.end}`;
+
+    if (currentTimerInterval) clearInterval(currentTimerInterval);
+
+    const updateTimer = () => { $('pip-countdown').innerText = hms(remaining(c)); };
+    updateTimer();
+    currentTimerInterval = setInterval(updateTimer, 1000);
+}
+
+// --- PICTURE-IN-PICTURE REAL DEL SISTEMA ---
+function drawPipFrame() {
+    if (!activeClass) return;
+    const canvas = $('pip-canvas'), ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000000';
+    ctx.font = 'bold 92px monospace';
+    ctx.fillText(hms(remaining(activeClass)), 40, 136);
+    ctx.fillStyle = '#333333';
+    ctx.font = '26px sans-serif';
+    ctx.fillText(`Horari: ${activeClass.start} - ${activeClass.end}`, 40, 220);
+}
+
+async function launchTruePiP() {
+    if (!document.pictureInPictureEnabled) { alert('Tu navegador no admite Picture-in-Picture.'); return; }
+    if (!activeClass) selectClass(nextClass());
+    if (!activeClass) return;
+
+    const video = $('pip-video');
+    drawPipFrame();
+    if (!video.srcObject) {
+        video.srcObject = $('pip-canvas').captureStream(30);
+        video.addEventListener('leavepictureinpicture', () => { clearInterval(pipCanvasInterval); pipCanvasInterval = null; });
+    }
+    await video.play().catch(e => console.log(e));
+    if (pipCanvasInterval) clearInterval(pipCanvasInterval);
+    pipCanvasInterval = setInterval(drawPipFrame, 1000);
+    try {
+        if (document.pictureInPictureElement) await document.exitPictureInPicture();
+        await video.requestPictureInPicture();
+    } catch (err) {
+        console.log('Error en PiP:', err);
+    }
+}
+$('btn-global-pip').addEventListener('click', launchTruePiP);
+$('btn-popout-pip').addEventListener('click', launchTruePiP);
+if (!document.pictureInPictureEnabled) { $('btn-global-pip').style.display='none'; $('btn-popout-pip').style.display='none'; }
+
+// Inicialización
+buildTable();
+buildDay();
+</script>
+
+</body>
+</html>
